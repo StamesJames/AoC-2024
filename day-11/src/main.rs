@@ -1,22 +1,38 @@
-use std::{collections::HashMap, fs::read_to_string};
+use std::{collections::HashMap, fs::read_to_string, sync::{mpsc, Arc, Mutex}, thread};
 
 const INPUT:&str = "input.txt";
 
 fn main() {
     let stones = parse_input(INPUT);
 
-    let mut sum = 0;
-    let mut cash = HashMap::new();
+    let cash = HashMap::new();
+    let cash = Arc::new(Mutex::new(cash));
+    let (tx, rx) = mpsc::channel();
     for stone in stones {
-        sum += calc_stone(stone, 75, &mut cash);
+        let tx_clone = tx.clone();
+        let mut cash_clone = cash.clone();
+        thread::spawn(move ||
+        {
+            let val = calc_stone(stone, 75, &mut cash_clone);
+            tx_clone.send(val).unwrap();
+        });
+    }
+    drop(tx);
+    let mut sum = 0;
+    for val in rx {
+        println!("reseaved {}", val);
+        sum += val;
     }
     println!("Fst: {sum}")
 }
 
 // could be cashed better with intermediat blinck results but was easier to write this way
-fn calc_stone(stone:u64, blinks:u64, cash:&mut HashMap<(u64, u64), u64>) -> u64 {
-    if let Some(r) = cash.get(&(stone,blinks)) {
-        return *r;
+fn calc_stone(stone:u64, blinks:u64, cash:&mut Arc<Mutex<HashMap<(u64, u64), u64>>>) -> u64 {
+    {
+        let cash = cash.lock().unwrap();
+        if let Some(r) = cash.get(&(stone,blinks)) {
+            return *r;
+        }
     }
     let result;
     let stone_string = stone.to_string();
@@ -34,7 +50,10 @@ fn calc_stone(stone:u64, blinks:u64, cash:&mut HashMap<(u64, u64), u64>) -> u64 
     } else {
         result = calc_stone(stone * 2024, blinks-1, cash)
     }
-    cash.insert((stone, blinks), result);
+    {
+        let mut cash = cash.lock().unwrap();
+        cash.insert((stone, blinks), result);
+    }
     return result;
 }
 
